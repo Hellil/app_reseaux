@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "ServerCentral",
+      "request": "launch",
+      "mainClass": "main.java.ServerCentral",
+      "projectName": ""
+    },
+    {
+      "type": "java",
+      "name": "Launch JavaFX",
+      "request": "launch",
+      "mainClass": "GUIClient",
+      "vmArgs": "--module-path \"C:\\javafx-sdk-21.0.2\\lib\" --add-modules javafx.controls,javafx.fxml"
+    }
+  ]
+}
+
+/*
+Client
+
+Compilation :
+javac --module-path "C:\javafx-sdk-21.0.2\lib" --add-modules javafx.controls,javafx.fxml -d out src/main/java/GUIClient.java src/main/java/ClientController.java
+Exécution :
+java --module-path "C:\javafx-sdk-21.0.2\lib" --add-modules javafx.controls,javafx.fxml -cp out GUIClient
+
+Server
+
+Compilation :
+javac -d out src/main/java/ServerCentral.java
+Exécution :
+java -cp out src/main/java/ServerCentral.java
+*/
