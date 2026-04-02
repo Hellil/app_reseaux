@@ -11,9 +11,9 @@ import java.util.Collections;
 import java.util.List;
 
 public class ServerCentralPush {
+
     private final List<String> document = Collections.synchronizedList(new ArrayList<>());
     private final List<PrintWriter> clients = Collections.synchronizedList(new ArrayList<>());
-    private final List<PrintWriter> servers = Collections.synchronizedList(new ArrayList<>());
     private final int port;
 
     public ServerCentralPush(int port) {
@@ -23,12 +23,16 @@ public class ServerCentralPush {
 
     public void start() {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("ServerCentralPush démarré sur le port " + port);
+            System.out.println("Serveur lancé sur port " + port);
+
             while (true) {
-                Socket clientSocket = serverSocket.accept();
-                new Thread(() -> handleClient(clientSocket)).start();
+                Socket socket = serverSocket.accept();
+                new Thread(() -> handleClient(socket)).start();
             }
-        } catch (IOException e) { e.printStackTrace(); }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private void handleClient(Socket socket) {
@@ -36,10 +40,9 @@ public class ServerCentralPush {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
 
-            // ajouter client à la liste
             synchronized (clients) { clients.add(out); }
 
-            // envoyer l'état complet du document au nouveau client
+            // envoi initial
             synchronized (document) {
                 for (int i = 0; i < document.size(); i++) {
                     out.println("LINE " + (i + 1) + " " + document.get(i));
@@ -49,11 +52,14 @@ public class ServerCentralPush {
 
             String request;
             while ((request = in.readLine()) != null) {
+
                 String[] parts = request.split(" ", 3);
                 String cmd = parts[0];
 
                 synchronized (document) {
+
                     switch (cmd) {
+
                         case "MDFL":
                             int idx = Integer.parseInt(parts[1]) - 1;
                             document.set(idx, parts[2]);
@@ -85,11 +91,9 @@ public class ServerCentralPush {
                     }
                 }
             }
+
         } catch (IOException e) {
-            System.err.println("Client déconnecté.");
-        } finally {
-            // retirer client
-            synchronized (clients) { clients.removeIf(p -> p.checkError()); }
+            System.out.println("Client déconnecté.");
         }
     }
 
@@ -97,52 +101,51 @@ public class ServerCentralPush {
         new Thread(() -> {
             try {
                 Socket socket = new Socket(host, port);
-
-                PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-                synchronized (servers) {
-                    servers.add(out);
-                }
-
-                System.out.println("Connecté à serveur : " + host + ":" + port);
 
                 String line;
                 while ((line = in.readLine()) != null) {
-                    handleServerMessage(line);
+                    handleRemoteMessage(line);
                 }
 
             } catch (IOException e) {
-                System.err.println("Erreur connexion serveur distant");
+                System.out.println("Erreur connexion serveur distant");
             }
         }).start();
     }
 
-    private void handleServerMessage(String msg) {
-        String[] parts = msg.split(" ", 3);
-
+    private void handleRemoteMessage(String msg) {
         synchronized (document) {
-            switch (parts[0]) {
 
-                case "MDFL":
-                    int idx = Integer.parseInt(parts[1]) - 1;
-                    document.set(idx, parts[2]);
-                    broadcast(msg);
-                    break;
+            if (msg.startsWith("LINE ")) {
+                String[] parts = msg.split(" ", 3);
+                int index = Integer.parseInt(parts[1]) - 1;
+                String text = parts[2];
 
-                case "LINE":
-                    int addIdx = Integer.parseInt(parts[1]) - 1;
-                    document.add(Math.min(addIdx, document.size()), parts[2]);
-                    broadcast(msg);
-                    break;
+                if (index <= document.size()) {
+                    document.add(index, text);
+                } else {
+                    document.add(text);
+                }
+                broadcast(msg);
 
-                case "DELL":
-                    int rmIdx = Integer.parseInt(parts[1]) - 1;
-                    if (rmIdx >= 0 && rmIdx < document.size()) {
-                        document.remove(rmIdx);
-                        broadcast(msg);
-                    }
-                    break;
+            } else if (msg.startsWith("MDFL ")) {
+                String[] parts = msg.split(" ", 3);
+                int index = Integer.parseInt(parts[1]) - 1;
+                String text = parts[2];
+
+                if (index < document.size()) {
+                    document.set(index, text);
+                }
+                broadcast(msg);
+
+            } else if (msg.startsWith("DELL ")) {
+                int index = Integer.parseInt(msg.split(" ")[1]) - 1;
+
+                if (index >= 0 && index < document.size()) {
+                    document.remove(index);
+                }
+                broadcast(msg);
             }
         }
     }
@@ -153,15 +156,17 @@ public class ServerCentralPush {
                 client.println(message);
             }
         }
+    }
 
-        synchronized (servers) {
-            for (PrintWriter server : servers) {
-                server.println(message);
-            }
+    public static Integer tryParse(String text) {
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException e) {
+            return 1234;
         }
     }
 
     public static void main(String[] args) {
-        new ServerCentralPush(ClientController.tryParse(args[0])).start();
+        new ServerCentralPush(tryParse(args[0])).start();
     }
 }

@@ -13,7 +13,6 @@ public class ClientController {
     @FXML private javafx.scene.control.ListView<String> listView;
     @FXML private TextField textField;
     @FXML private MenuItem deleteLineMenuItem;
-    @FXML private javafx.scene.control.Button linkButton;
     private PrintWriter out;
     private BufferedReader in;
 
@@ -80,8 +79,6 @@ public class ClientController {
                 textField.setText(newValue);
             }
         });
-
-        linkButton.setOnAction(e -> handleLinkServer());
     }
 
     // no more refresh

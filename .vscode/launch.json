@@ -29,7 +29,7 @@ java --module-path "C:\javafx-sdk-21.0.2\lib" --add-modules javafx.controls,java
 Server
 
 Compilation :
-javac -d out src/main/java/ServerCentral.java
+javac -d out src/main/java/ServerCentralPush.java
 Exécution :
-java -cp out src/main/java/ServerCentral.java
+java -cp out src/main/java/ServerCentralPush.java
 */
