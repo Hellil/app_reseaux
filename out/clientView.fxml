@@ -21,5 +21,5 @@
         </ListView>
 
         <TextField fx:id="textField" promptText="Select a line and  edit here..." onAction="#handleTextFieldUpdate"/>
-        <Button fx:id="refreshButton" text="refresh"/>
+        <Button fx:id="linkButton" text="link server" onAction="#handleLinkServer"/>
 </VBox>

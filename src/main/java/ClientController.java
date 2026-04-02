@@ -13,6 +13,7 @@ public class ClientController {
     @FXML private javafx.scene.control.ListView<String> listView;
     @FXML private TextField textField;
     @FXML private MenuItem deleteLineMenuItem;
+    @FXML private javafx.scene.control.Button linkButton;
     private PrintWriter out;
     private BufferedReader in;
 
@@ -79,6 +80,8 @@ public class ClientController {
                 textField.setText(newValue);
             }
         });
+
+        linkButton.setOnAction(e -> handleLinkServer());
     }
 
     // no more refresh
@@ -103,6 +106,25 @@ public class ClientController {
         } catch (IOException e) { e.printStackTrace(); }
     }
     */
+
+    public static Integer tryParse(String text) {
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException e) {
+            return 1234;
+        }
+    }
+
+    @FXML
+    private void handleLinkServer() {
+        String host = "localhost";
+        var port = tryParse(textField.getText());
+        if (port == null){
+            port = -1;
+        }
+
+        out.println("LINK " + host + " " + port);
+    }
 
     // methodes clic droit
     @FXML
