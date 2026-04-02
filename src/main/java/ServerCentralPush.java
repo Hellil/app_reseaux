@@ -8,12 +8,17 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 public class ServerCentralPush {
 
     private final List<String> document = Collections.synchronizedList(new ArrayList<>());
     private final List<PrintWriter> clients = Collections.synchronizedList(new ArrayList<>());
+    private final Set<String> seenMessages = Collections.synchronizedSet(new HashSet<>());
+
     private final int port;
 
     public ServerCentralPush(int port) {
@@ -42,7 +47,7 @@ public class ServerCentralPush {
 
             synchronized (clients) { clients.add(out); }
 
-            // envoi initial
+            // envoi initial (SANS ID)
             synchronized (document) {
                 for (int i = 0; i < document.size(); i++) {
                     out.println("LINE " + (i + 1) + " " + document.get(i));
@@ -53,7 +58,31 @@ public class ServerCentralPush {
             String request;
             while ((request = in.readLine()) != null) {
 
-                String[] parts = request.split(" ", 3);
+                String msgId;
+                String realMsg;
+
+                // message avec ID ?
+                if (request.contains("|")) {
+                    String[] split = request.split("\\|", 2);
+                    msgId = split[0];
+                    realMsg = split[1];
+
+                    synchronized (seenMessages) {
+                        if (seenMessages.contains(msgId)) continue;
+                        seenMessages.add(msgId);
+                    }
+
+                } else {
+                    // message venant d’un client → créer ID
+                    msgId = UUID.randomUUID().toString();
+                    realMsg = request;
+
+                    synchronized (seenMessages) {
+                        seenMessages.add(msgId);
+                    }
+                }
+
+                String[] parts = realMsg.split(" ", 3);
                 String cmd = parts[0];
 
                 synchronized (document) {
@@ -63,20 +92,20 @@ public class ServerCentralPush {
                         case "MDFL":
                             int idx = Integer.parseInt(parts[1]) - 1;
                             document.set(idx, parts[2]);
-                            broadcast("MDFL " + (idx + 1) + " " + parts[2]);
+                            broadcast(msgId, "MDFL " + (idx + 1) + " " + parts[2]);
                             break;
 
                         case "ADDL":
                             int addIdx = Integer.parseInt(parts[1]) - 1;
                             document.add(Math.min(addIdx, document.size()), parts[2]);
-                            broadcast("LINE " + (addIdx + 1) + " " + parts[2]);
+                            broadcast(msgId, "LINE " + (addIdx + 1) + " " + parts[2]);
                             break;
 
                         case "RMVL":
                             int rmIdx = Integer.parseInt(parts[1]) - 1;
                             if (rmIdx >= 0 && rmIdx < document.size()) {
                                 document.remove(rmIdx);
-                                broadcast("DELL " + (rmIdx + 1));
+                                broadcast(msgId, "DELL " + (rmIdx + 1));
                             }
                             break;
 
@@ -114,7 +143,19 @@ public class ServerCentralPush {
         }).start();
     }
 
-    private void handleRemoteMessage(String msg) {
+    private void handleRemoteMessage(String fullMsg) {
+
+        if (!fullMsg.contains("|")) return;
+
+        String[] split = fullMsg.split("\\|", 2);
+        String msgId = split[0];
+        String msg = split[1];
+
+        synchronized (seenMessages) {
+            if (seenMessages.contains(msgId)) return;
+            seenMessages.add(msgId);
+        }
+
         synchronized (document) {
 
             if (msg.startsWith("LINE ")) {
@@ -127,7 +168,6 @@ public class ServerCentralPush {
                 } else {
                     document.add(text);
                 }
-                broadcast(msg);
 
             } else if (msg.startsWith("MDFL ")) {
                 String[] parts = msg.split(" ", 3);
@@ -137,7 +177,6 @@ public class ServerCentralPush {
                 if (index < document.size()) {
                     document.set(index, text);
                 }
-                broadcast(msg);
 
             } else if (msg.startsWith("DELL ")) {
                 int index = Integer.parseInt(msg.split(" ")[1]) - 1;
@@ -145,15 +184,19 @@ public class ServerCentralPush {
                 if (index >= 0 && index < document.size()) {
                     document.remove(index);
                 }
-                broadcast(msg);
             }
         }
+
+        // propagation aux autres serveurs + clients
+        broadcast(msgId, msg);
     }
 
-    private void broadcast(String message) {
+    private void broadcast(String msgId, String message) {
+        String fullMessage = msgId + "|" + message;
+
         synchronized (clients) {
             for (PrintWriter client : clients) {
-                client.println(message);
+                client.println(fullMessage);
             }
         }
     }
