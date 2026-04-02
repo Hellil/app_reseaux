@@ -115,8 +115,11 @@ public class ServerCentralPush {
     }
 
     private void handleRemoteMessage(String msg) {
-        synchronized (document) {
+        if (msg.startsWith("FWD ")) {
+            return; // On ignore ce message car il a déjà été relayé
+        }
 
+        synchronized (document) {
             if (msg.startsWith("LINE ")) {
                 String[] parts = msg.split(" ", 3);
                 int index = Integer.parseInt(parts[1]) - 1;
@@ -127,7 +130,7 @@ public class ServerCentralPush {
                 } else {
                     document.add(text);
                 }
-                broadcast(msg);
+                broadcast("FWD " + msg);
 
             } else if (msg.startsWith("MDFL ")) {
                 String[] parts = msg.split(" ", 3);
@@ -137,7 +140,7 @@ public class ServerCentralPush {
                 if (index < document.size()) {
                     document.set(index, text);
                 }
-                broadcast(msg);
+                broadcast("FWD " + msg);
 
             } else if (msg.startsWith("DELL ")) {
                 int index = Integer.parseInt(msg.split(" ")[1]) - 1;
@@ -145,7 +148,7 @@ public class ServerCentralPush {
                 if (index >= 0 && index < document.size()) {
                     document.remove(index);
                 }
-                broadcast(msg);
+                broadcast("FWD " + msg);
             }
         }
     }

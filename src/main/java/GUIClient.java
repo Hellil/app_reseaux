@@ -12,7 +12,7 @@ public class GUIClient extends Application {
       ClientController controller = loader.getController();
 
       // connexion serveur
-      controller.setupNetwork("localhost", 12347);
+      controller.setupNetwork("localhost", 12347); // TODO: changer ici pour changer port
 
       // no more refresh
       primaryStage.setTitle("collaborative editor");

@@ -34,6 +34,10 @@ public class ClientController {
     }
 
     private void handleServerMessage(String msg) {
+        if (msg.startsWith("FWD ")) {
+            msg = msg.substring(4);
+        }
+
         if (msg.startsWith("LINE ")) {
             String[] parts = msg.split(" ", 3);
             int index = Integer.parseInt(parts[1]) - 1;
