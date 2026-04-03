@@ -81,7 +81,7 @@ public class MasterServer {
                 }
             }
         } catch (IOException e) {
-            System.out.println("Connexion perdue avec un nœud/client.");
+            System.out.println("Connexion perdue avec un client.");
         }
     }
 
