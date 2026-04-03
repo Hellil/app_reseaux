@@ -1,24 +1,23 @@
 package main.java;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.io.*;
+import java.net.*;
+import java.util.*;
 
 public class MasterServer {
 
-    private final List<String> document = Collections.synchronizedList(new ArrayList<>());
-    private final List<PrintWriter> connections = Collections.synchronizedList(new ArrayList<>());
+    private static class ClientHandler {
+        PrintWriter out;
+        List<String> document = new ArrayList<>();
+    }
+
+    private final List<ClientHandler> clients = Collections.synchronizedList(new ArrayList<>());
+    private final List<String> masterDocument = Collections.synchronizedList(new ArrayList<>());
     private final int port;
 
     public MasterServer(int port) {
         this.port = port;
-        document.add("Première ligne du document partagé (MASTER).");
+        masterDocument.add("Première ligne du document partagé (MASTER).");
     }
 
     public void start() {
@@ -29,6 +28,7 @@ public class MasterServer {
                 Socket socket = serverSocket.accept();
                 new Thread(() -> handleConnection(socket)).start();
             }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -39,13 +39,19 @@ public class MasterServer {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
 
-            synchronized (connections) { connections.add(out); }
+            ClientHandler client = new ClientHandler();
+            client.out = out;
 
-            // Envoi initial du document à la nouvelle connexion (Client ou Réplique)
-            synchronized (document) {
-                for (int i = 0; i < document.size(); i++) {
-                    out.println("LINE " + (i + 1) + " " + document.get(i));
-                }
+            // copie du document initial
+            synchronized (masterDocument) {
+                client.document.addAll(masterDocument);
+            }
+
+            clients.add(client);
+
+            // envoi initial
+            for (int i = 0; i < client.document.size(); i++) {
+                out.println("LINE " + (i + 1) + " " + client.document.get(i));
             }
             out.println("DONE");
 
@@ -54,42 +60,62 @@ public class MasterServer {
                 String[] parts = request.split(" ", 3);
                 String cmd = parts[0];
 
-                synchronized (document) {
-                    switch (cmd) {
-                        case "MDFL":
-                            int idx = Integer.parseInt(parts[1]) - 1;
-                            if (idx >= 0 && idx < document.size()) {
-                                document.set(idx, parts[2]);
-                                broadcast("MDFL " + (idx + 1) + " " + parts[2]);
-                            }
-                            break;
+                switch (cmd) {
 
-                        case "ADDL":
-                            int addIdx = Integer.parseInt(parts[1]) - 1;
-                            document.add(Math.min(addIdx, document.size()), parts[2]);
-                            broadcast("LINE " + (addIdx + 1) + " " + parts[2]);
-                            break;
+                    case "MDFL": {
+                        int idx = Integer.parseInt(parts[1]) - 1;
+                        if (idx >= 0 && idx < client.document.size()) {
+                            client.document.set(idx, parts[2]);
+                            client.out.println("MDFL " + (idx + 1) + " " + parts[2]);
+                        }
+                        break;
+                    }
 
-                        case "RMVL":
-                            int rmIdx = Integer.parseInt(parts[1]) - 1;
-                            if (rmIdx >= 0 && rmIdx < document.size()) {
-                                document.remove(rmIdx);
-                                broadcast("DELL " + (rmIdx + 1));
+                    case "ADDL": {
+                        int idx = Integer.parseInt(parts[1]) - 1;
+
+                        if (idx < 0) idx = 0;
+                        if (idx > client.document.size()) idx = client.document.size();
+
+                        client.document.add(idx, parts[2]);
+                        client.out.println("LINE " + (idx + 1) + " " + parts[2]);
+                        break;
+}
+
+                    case "RMVL": {
+                        int idx = Integer.parseInt(parts[1]) - 1;
+                        if (idx >= 0 && idx < client.document.size()) {
+                            client.document.remove(idx);
+                            client.out.println("DELL " + (idx + 1));
+                        }
+                        break;
+                    }
+
+                    case "LINK": {
+                        String host = parts[1];
+                        int port = Integer.parseInt(parts[2]);
+
+                        try {
+                            Socket linkSocket = new Socket(host, port);
+                            PrintWriter linkOut = new PrintWriter(linkSocket.getOutputStream(), true);
+
+                            synchronized (client.document) {
+                                for (int i = 0; i < client.document.size(); i++) {
+                                    linkOut.println("LINE " + (i + 1) + " " + client.document.get(i));
+                                }
                             }
-                            break;
+                            linkOut.println("DONE");
+
+                        } catch (IOException e) {
+                            client.out.println("ERROR LINK FAILED");
+                        }
+                        break;
                     }
                 }
             }
-        } catch (IOException e) {
-            System.out.println("Connexion perdue avec un nœud/client.");
-        }
-    }
 
-    private void broadcast(String message) {
-        synchronized (connections) {
-            for (PrintWriter conn : connections) {
-                conn.println(message);
-            }
+        } catch (IOException e) {
+            System.out.println("Connexion perdue avec un client.");
         }
     }
 
