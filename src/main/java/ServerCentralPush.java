@@ -13,112 +13,61 @@ import java.util.List;
 public class ServerCentralPush {
 
     private final List<String> document = Collections.synchronizedList(new ArrayList<>());
-    private final List<PrintWriter> clients = Collections.synchronizedList(new ArrayList<>());
-    private final int port;
+    private final List<PrintWriter> localClients = Collections.synchronizedList(new ArrayList<>());
+    
+    private final int localPort;
+    private final String masterHost;
+    private final int masterPort;
+    
+    private PrintWriter masterOut;
 
-    public ServerCentralPush(int port) {
-        this.port = port;
-        document.add("Première ligne du document partagé.");
+    public ServerCentralPush(int localPort, String masterHost, int masterPort) {
+        this.localPort = localPort;
+        this.masterHost = masterHost;
+        this.masterPort = masterPort;
     }
 
     public void start() {
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Serveur lancé sur port " + port);
+        connectToMaster();
+
+        try (ServerSocket serverSocket = new ServerSocket(localPort)) {
+            System.out.println("Serveur secondaire lance sur le port " + localPort + " (lie au maitre " + masterHost + ":" + masterPort + ")");
 
             while (true) {
                 Socket socket = serverSocket.accept();
-                new Thread(() -> handleClient(socket)).start();
+                new Thread(() -> handleLocalClient(socket)).start();
             }
-
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void handleClient(Socket socket) {
+    private void connectToMaster() {
         try {
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            Socket masterSocket = new Socket(masterHost, masterPort);
+            masterOut = new PrintWriter(masterSocket.getOutputStream(), true);
+            BufferedReader masterIn = new BufferedReader(new InputStreamReader(masterSocket.getInputStream()));
 
-            synchronized (clients) { clients.add(out); }
+            System.out.println("Connecte au serveur maitre");
 
-            // envoi initial
-            synchronized (document) {
-                for (int i = 0; i < document.size(); i++) {
-                    out.println("LINE " + (i + 1) + " " + document.get(i));
-                }
-            }
-            out.println("DONE");
-
-            String request;
-            while ((request = in.readLine()) != null) {
-
-                String[] parts = request.split(" ", 3);
-                String cmd = parts[0];
-
-                synchronized (document) {
-
-                    switch (cmd) {
-
-                        case "MDFL":
-                            int idx = Integer.parseInt(parts[1]) - 1;
-                            document.set(idx, parts[2]);
-                            broadcast("MDFL " + (idx + 1) + " " + parts[2]);
-                            break;
-
-                        case "ADDL":
-                            int addIdx = Integer.parseInt(parts[1]) - 1;
-                            document.add(Math.min(addIdx, document.size()), parts[2]);
-                            broadcast("LINE " + (addIdx + 1) + " " + parts[2]);
-                            break;
-
-                        case "RMVL":
-                            int rmIdx = Integer.parseInt(parts[1]) - 1;
-                            if (rmIdx >= 0 && rmIdx < document.size()) {
-                                document.remove(rmIdx);
-                                broadcast("DELL " + (rmIdx + 1));
-                            }
-                            break;
-
-                        case "LINK":
-                            String host = parts[1];
-                            int port = Integer.parseInt(parts[2]);
-                            connectToServer(host, port);
-                            break;
-
-                        default:
-                            out.println("ERRL Commande inconnue");
+            new Thread(() -> {
+                try {
+                    String msg;
+                    while ((msg = masterIn.readLine()) != null) {
+                        handleMasterMessage(msg);
                     }
+                } catch (IOException e) {
+                    System.out.println("Connexion au serveur maitre perdue");
                 }
-            }
+            }).start();
 
         } catch (IOException e) {
-            System.out.println("Client déconnecté.");
+            System.err.println("Impossible de se connecter au serveur maitre");
+            System.exit(1);
         }
     }
 
-    private void connectToServer(String host, int port) {
-        new Thread(() -> {
-            try {
-                Socket socket = new Socket(host, port);
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-                String line;
-                while ((line = in.readLine()) != null) {
-                    handleRemoteMessage(line);
-                }
-
-            } catch (IOException e) {
-                System.out.println("Erreur connexion serveur distant");
-            }
-        }).start();
-    }
-
-    private void handleRemoteMessage(String msg) {
-        if (msg.startsWith("FWD ")) {
-            return; // On ignore ce message car il a déjà été relayé
-        }
-
+    private void handleMasterMessage(String msg) {
         synchronized (document) {
             if (msg.startsWith("LINE ")) {
                 String[] parts = msg.split(" ", 3);
@@ -130,7 +79,7 @@ public class ServerCentralPush {
                 } else {
                     document.add(text);
                 }
-                broadcast("FWD " + msg);
+                broadcastToLocalClients(msg);
 
             } else if (msg.startsWith("MDFL ")) {
                 String[] parts = msg.split(" ", 3);
@@ -140,22 +89,51 @@ public class ServerCentralPush {
                 if (index < document.size()) {
                     document.set(index, text);
                 }
-                broadcast("FWD " + msg);
+                broadcastToLocalClients(msg);
 
             } else if (msg.startsWith("DELL ")) {
                 int index = Integer.parseInt(msg.split(" ")[1]) - 1;
-
                 if (index >= 0 && index < document.size()) {
                     document.remove(index);
                 }
-                broadcast("FWD " + msg);
+                broadcastToLocalClients(msg);
+            } else if (msg.equals("DONE")) {
+                // fin sync
             }
         }
     }
 
-    private void broadcast(String message) {
-        synchronized (clients) {
-            for (PrintWriter client : clients) {
+    private void handleLocalClient(Socket socket) {
+        try {
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+
+            synchronized (localClients) { localClients.add(out); }
+
+            synchronized (document) {
+                for (int i = 0; i < document.size(); i++) {
+                    out.println("LINE " + (i + 1) + " " + document.get(i));
+                }
+            }
+            out.println("DONE");
+
+            String request;
+            while ((request = in.readLine()) != null) {
+                if (request.startsWith("MDFL") || request.startsWith("ADDL") || request.startsWith("RMVL")) {
+                    if (masterOut != null) {
+                        masterOut.println(request);
+                    }
+                }
+            }
+
+        } catch (IOException e) {
+            System.out.println("Client local déconnecté.");
+        }
+    }
+
+    private void broadcastToLocalClients(String message) {
+        synchronized (localClients) {
+            for (PrintWriter client : localClients) {
                 client.println(message);
             }
         }
@@ -170,6 +148,10 @@ public class ServerCentralPush {
     }
 
     public static void main(String[] args) {
-        new ServerCentralPush(tryParse(args[0])).start();
+        int localPort = tryParse(args[0]);
+        String masterHost = "localhost";
+        int masterPort = tryParse(args[1]);
+
+        new ServerCentralPush(localPort, masterHost, masterPort).start();
     }
 }
