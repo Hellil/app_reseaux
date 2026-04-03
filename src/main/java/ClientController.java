@@ -13,7 +13,6 @@ public class ClientController {
     @FXML private javafx.scene.control.ListView<String> listView;
     @FXML private TextField textField;
     @FXML private MenuItem deleteLineMenuItem;
-
     private PrintWriter out;
     private BufferedReader in;
 
@@ -22,6 +21,7 @@ public class ClientController {
         this.out = new PrintWriter(socket.getOutputStream(), true);
         this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
+        // thread de réception push
         new Thread(() -> {
             try {
                 String line;
@@ -43,10 +43,14 @@ public class ClientController {
             int index = Integer.parseInt(parts[1]) - 1;
             String text = parts[2];
 
-            if (index >= 0 && index <= listView.getItems().size()) {
-                listView.getItems().add(index, text);
+            if (index < listView.getItems().size()) {
+                if (listView.getItems().size() >= index + 1) { // && !listView.getItems().get(index).equals(text)
+                    listView.getItems().add(index, text);
+                } else {
+                    listView.getItems().set(index, text);
+                }
             } else {
-                listView.getItems().add(text);
+                listView.getItems().add(text); // ajout
             }
         } else if (msg.startsWith("MDFL ")) {
             String[] parts = msg.split(" ", 3);
@@ -56,22 +60,23 @@ public class ClientController {
             if (index < listView.getItems().size()) {
                 listView.getItems().set(index, text);
             } else {
-                listView.getItems().add(text);
+                listView.getItems().add(text); // ajout
             }
-
         } else if (msg.startsWith("DELL ")) {
             int index = Integer.parseInt(msg.split(" ")[1]) - 1;
             if (index >= 0 && index < listView.getItems().size()) {
                 listView.getItems().remove(index);
             }
-
         } else if (msg.equals("DONE")) {
-            // fin init
+            // fin d'envoi initial
         }
     }
 
     @FXML
     public void initialize() {
+        // no more refresh (the button is now 100% useless)
+
+        // delete line when line selected
         listView.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, newValue) -> {
             deleteLineMenuItem.setDisable(newValue == null);
             if (newValue != null && !textField.isFocused()) {
@@ -79,6 +84,29 @@ public class ClientController {
             }
         });
     }
+
+    // no more refresh
+    /*
+    @FXML
+    public void handleRefresh() {
+        if (out == null) return;
+        try {
+            out.println("GETD");
+            List<String> newLines = new ArrayList<>();
+            String response;
+            while (!(response = in.readLine()).equals("DONE")) {
+                if (response.startsWith("LINE ")) {
+                    newLines.add(response.split(" ", 3)[2]);
+                }
+            }
+            int selectedIndex = listView.getSelectionModel().getSelectedIndex();
+            listView.getItems().setAll(newLines);
+            if (selectedIndex >= 0 && selectedIndex < newLines.size()) {
+                listView.getSelectionModel().select(selectedIndex);
+            }
+        } catch (IOException e) { e.printStackTrace(); }
+    }
+    */
 
     public static Integer tryParse(String text) {
         try {
@@ -91,10 +119,15 @@ public class ClientController {
     @FXML
     private void handleLinkServer() {
         String host = "localhost";
-        int port = tryParse(textField.getText());
+        var port = tryParse(textField.getText());
+        if (port == null){
+            port = -1;
+        }
+
         out.println("LINK " + host + " " + port);
     }
 
+    // methodes clic droit
     @FXML
     public void handleTextFieldUpdate() {
         int index = listView.getSelectionModel().getSelectedIndex();
@@ -105,12 +138,7 @@ public class ClientController {
     @FXML
     public void handleAddLine() {
         int index = listView.getSelectionModel().getSelectedIndex();
-
-        if (index < 0) {
-            index = listView.getItems().size();
-        }
-
-        String text = "Nouvelle ligne";
+        String text = "Nouvelle ligne"; // à remplacer par un TextField plus tard
         out.println("ADDL " + (index + 1) + " " + text);
     }
 
