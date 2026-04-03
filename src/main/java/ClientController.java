@@ -16,12 +16,27 @@ public class ClientController {
     private PrintWriter out;
     private BufferedReader in;
 
-    public void setupNetwork(String host, int port) throws IOException {
+    public void setupNetwork(String dispatchHost, int dispatchPort) throws IOException {
+        Socket dispatchSocket = new Socket(dispatchHost, dispatchPort);
+        BufferedReader dispatchIn = new BufferedReader(new InputStreamReader(dispatchSocket.getInputStream()));
+        
+        String serverAddress = dispatchIn.readLine();
+        dispatchSocket.close();
+
+        if (serverAddress == null || !serverAddress.contains(":")) {
+            throw new IOException("Adresse du serveur invalide reçue par le Dispatcher.");
+        }
+
+        String[] parts = serverAddress.split(":");
+        String host = parts[0];
+        int port = Integer.parseInt(parts[1]);
+
+        System.out.println("Connecté au serveur de la fédération : " + host + ":" + port);
+
         Socket socket = new Socket(host, port);
         this.out = new PrintWriter(socket.getOutputStream(), true);
         this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-        // thread de réception push
         new Thread(() -> {
             try {
                 String line;
@@ -44,13 +59,13 @@ public class ClientController {
             String text = parts[2];
 
             if (index < listView.getItems().size()) {
-                if (listView.getItems().size() >= index + 1) { // && !listView.getItems().get(index).equals(text)
+                if (listView.getItems().size() >= index + 1) {
                     listView.getItems().add(index, text);
                 } else {
                     listView.getItems().set(index, text);
                 }
             } else {
-                listView.getItems().add(text); // ajout
+                listView.getItems().add(text);
             }
         } else if (msg.startsWith("MDFL ")) {
             String[] parts = msg.split(" ", 3);
@@ -60,7 +75,7 @@ public class ClientController {
             if (index < listView.getItems().size()) {
                 listView.getItems().set(index, text);
             } else {
-                listView.getItems().add(text); // ajout
+                listView.getItems().add(text);
             }
         } else if (msg.startsWith("DELL ")) {
             int index = Integer.parseInt(msg.split(" ")[1]) - 1;
@@ -74,9 +89,6 @@ public class ClientController {
 
     @FXML
     public void initialize() {
-        // no more refresh (the button is now 100% useless)
-
-        // delete line when line selected
         listView.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, newValue) -> {
             deleteLineMenuItem.setDisable(newValue == null);
             if (newValue != null && !textField.isFocused()) {
@@ -84,29 +96,6 @@ public class ClientController {
             }
         });
     }
-
-    // no more refresh
-    /*
-    @FXML
-    public void handleRefresh() {
-        if (out == null) return;
-        try {
-            out.println("GETD");
-            List<String> newLines = new ArrayList<>();
-            String response;
-            while (!(response = in.readLine()).equals("DONE")) {
-                if (response.startsWith("LINE ")) {
-                    newLines.add(response.split(" ", 3)[2]);
-                }
-            }
-            int selectedIndex = listView.getSelectionModel().getSelectedIndex();
-            listView.getItems().setAll(newLines);
-            if (selectedIndex >= 0 && selectedIndex < newLines.size()) {
-                listView.getSelectionModel().select(selectedIndex);
-            }
-        } catch (IOException e) { e.printStackTrace(); }
-    }
-    */
 
     public static Integer tryParse(String text) {
         try {
@@ -138,7 +127,7 @@ public class ClientController {
     @FXML
     public void handleAddLine() {
         int index = listView.getSelectionModel().getSelectedIndex();
-        String text = "Nouvelle ligne"; // à remplacer par un TextField plus tard
+        String text = "Nouvelle ligne";
         out.println("ADDL " + (index + 1) + " " + text);
     }
 
